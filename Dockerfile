@@ -8,7 +8,8 @@ RUN rm -rf /var/cache/apk/*
 # 构建阶段
 FROM base AS builder
 
-RUN npm install -g pnpm
+# pnpm 10 会因未批准的依赖构建脚本(ERR_PNPM_IGNORED_BUILDS)直接失败，锁文件是 9.x 生成的，固定用 9
+RUN npm install -g pnpm@9
 WORKDIR /app
 
 COPY package*json tsconfig.json pnpm-lock.yaml .env.example ./

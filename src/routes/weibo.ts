@@ -22,6 +22,7 @@ interface WeiboItem {
   word?: string;
   word_scheme?: string;
   onboard_time?: number;
+  num?: number;
 }
 
 interface WeiboResponse {
@@ -57,7 +58,7 @@ const getList = async (noCache: boolean) => {
         id: v.mid || v.word_scheme || `weibo-${index}`,
         title: title,
         desc: v.word_scheme || `#${title}#`,
-        hot: undefined,
+        hot: v.num,
         timestamp: getTime(v.onboard_time || Date.now()),
         url: `https://s.weibo.com/weibo?q=${encodeURIComponent(title)}`,
         mobileUrl: `https://s.weibo.com/weibo?q=${encodeURIComponent(title)}`,

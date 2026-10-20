@@ -2,15 +2,9 @@ import type { RouterData } from "../types.js";
 import { get } from "../utils/getData.js";
 import { getTime } from "../utils/getTime.js";
 
-const mappings: Record<string, string> = {
-  O_TIME: "发震时刻(UTC+8)",
-  LOCATION_C: "参考位置",
-  M: "震级(M)",
-  EPI_LAT: "纬度(°)",
-  EPI_LON: "经度(°)",
-  EPI_DEPTH: "深度(千米)",
-  SAVE_TIME: "录入时间",
-};
+// news.ceic.ac.cn 已关闭页面抓取（返回 405 invisible bucket，且证书过期），
+// 改用 Wolfx 同步的中国地震台网(CENC)速报数据
+const CENC_URL = "https://api.wolfx.jp/cenc_eqlist.json";
 
 export const handleRoute = async (_: undefined, noCache: boolean) => {
   const listData = await getList(noCache);
@@ -25,38 +19,50 @@ export const handleRoute = async (_: undefined, noCache: boolean) => {
   return routeData;
 };
 
-interface EarthquakeItem {
-  NEW_DID: string;
-  LOCATION_C: string;
-  M: string;
-  O_TIME: string;
-  [key: string]: string;
+interface CencItem {
+  type?: string;
+  EventID: string;
+  time: string;
+  ReportTime?: string;
+  location?: string;
+  placeName?: string;
+  magnitude: string;
+  depth: string;
+  latitude: string;
+  longitude: string;
+  intensity?: string;
 }
 
 const getList = async (noCache: boolean) => {
-  const url = `https://news.ceic.ac.cn/speedsearch.html`;
-  const result = await get<string>({ url, noCache });
-  const regex = /const newdata = (\[.*?\]);/s;
-  const match = result.data.match(regex);
-  const list: EarthquakeItem[] = match && match[1] ? JSON.parse(match[1]) : [];
+  const result = await get<Record<string, CencItem>>({
+    url: CENC_URL,
+    noCache,
+    ttl: 300,
+  });
+
+  const list = Object.values(result.data || {});
+
   return {
     ...result,
     data: list.map((v) => {
-      const contentBuilder: string[] = [];
-      const { NEW_DID, LOCATION_C, M } = v;
-      for (const mappingsKey in mappings) {
-        contentBuilder.push(
-          `${mappings[mappingsKey]}：${v[mappingsKey]}`,
-        );
-      }
+      const place = v.placeName || v.location || "";
+      const contentBuilder = [
+        `发震时刻(UTC+8)：${v.time}`,
+        `参考位置：${place}`,
+        `震级(M)：${v.magnitude}`,
+        `纬度(°)：${v.latitude}`,
+        `经度(°)：${v.longitude}`,
+        `深度(千米)：${v.depth}`,
+        `录入时间：${v.ReportTime || ""}`,
+      ];
       return {
-        id: NEW_DID,
-        title: `${LOCATION_C}发生${M}级地震`,
+        id: v.EventID,
+        title: `${place}发生${v.magnitude}级地震`,
         desc: contentBuilder.join("\n"),
-        timestamp: getTime(v["O_TIME"]),
+        timestamp: getTime(v.time),
         hot: undefined,
-        url: `https://news.ceic.ac.cn/${NEW_DID}.html`,
-        mobileUrl: `https://news.ceic.ac.cn/${NEW_DID}.html`,
+        url: `https://news.ceic.ac.cn/${v.EventID}.html`,
+        mobileUrl: `https://news.ceic.ac.cn/${v.EventID}.html`,
       };
     }),
   };

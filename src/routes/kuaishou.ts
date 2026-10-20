@@ -1,9 +1,21 @@
 import type { ListItem, RouterData } from "../types.js";
-import { get } from "../utils/getData.js";
+import { post } from "../utils/getData.js";
 import { parseChineseNumber } from "../utils/getNum.js";
-import UserAgent from "user-agents";
 
-const APOLLO_STATE_PREFIX = "window.__APOLLO_STATE__=";
+// 首页 HTML 里的 APOLLO_STATE 已被反爬拦截（返回 {"result":2}），改用官方 GraphQL 接口
+const GRAPHQL_URL = "https://www.kuaishou.com/graphql";
+const HOT_RANK_QUERY = `query visionHotRank($page: String) {
+  visionHotRank(page: $page) {
+    result
+    items {
+      id
+      name
+      hotValue
+      photoIds
+      poster
+    }
+  }
+}`;
 
 export const handleRoute = async (_: undefined, noCache: boolean) => {
   const listData = await getList(noCache);
@@ -22,84 +34,55 @@ export const handleRoute = async (_: undefined, noCache: boolean) => {
 interface KuaishouHotItem {
   id: string;
   name: string;
-  poster?: string;
-  hotValue?: string;
-  photoIds?: { json?: string[] };
+  hotValue?: string | null;
+  photoIds?: string[] | null;
+  poster?: string | null;
 }
 
-interface KuaishouApolloState {
-  [key: string]: KuaishouHotItem & {
-    items?: Array<{ id: string }>;
+interface KuaishouResponse {
+  data?: {
+    visionHotRank?: {
+      result: number;
+      items: KuaishouHotItem[];
+    };
   };
 }
 
 const getList = async (noCache: boolean) => {
-  const url = `https://www.kuaishou.com/?isHome=1`;
-  const userAgent = new UserAgent({
-    deviceCategory: "desktop",
-  });
-  const result = await get<string>({
-    url,
+  const result = await post<KuaishouResponse>({
+    url: GRAPHQL_URL,
     noCache,
+    ttl: 600,
     headers: {
-      "User-Agent": userAgent.toString(),
+      "Content-Type": "application/json",
+      Referer: "https://www.kuaishou.com/",
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    },
+    body: {
+      operationName: "visionHotRank",
+      variables: { page: "home" },
+      query: HOT_RANK_QUERY,
     },
   });
-  const listData: ListItem[] = [];
-  // 获取主要内容
-  const html = result.data || "";
-  const start = html.indexOf(APOLLO_STATE_PREFIX);
-  if (start === -1) {
-    throw new Error("快手页面结构变更，未找到 APOLLO_STATE");
-  }
-  const scriptSlice = html.slice(start + APOLLO_STATE_PREFIX.length);
-  const sentinelA = scriptSlice.indexOf(";(function(");
-  const sentinelB = scriptSlice.indexOf("</script>");
-  const cutIndex =
-    sentinelA !== -1 && sentinelB !== -1 ? Math.min(sentinelA, sentinelB) : Math.max(sentinelA, sentinelB);
-  if (cutIndex === -1) {
-    throw new Error("快手页面结构变更，未找到 APOLLO_STATE 结束标记");
-  }
-  const raw = scriptSlice.slice(0, cutIndex).trim().replace(/;$/, "");
-  let jsonObject: KuaishouApolloState;
-  try {
-    // 快手返回的 JSON 末尾常带 undefined/null，需要截断到最后一个 '}' 出现
-    const lastBrace = raw.lastIndexOf("}");
-    const cleanRaw = lastBrace !== -1 ? raw.slice(0, lastBrace + 1) : raw;
-    jsonObject = JSON.parse(cleanRaw)["defaultClient"];
-  } catch (err) {
-    const msg =
-      err instanceof Error
-        ? `${err.message} | snippet=${raw.slice(0, 200)}...`
-        : "未知错误";
-    throw new Error(`快手数据解析失败: ${msg}`);
-  }
-  // 获取所有分类
-  const allItems =
-    jsonObject['$ROOT_QUERY.visionHotRank({"page":"home"})']?.items ||
-    jsonObject['$ROOT_QUERY.visionHotRank({"page":"home","platform":"web"})']
-      ?.items ||
-    [];
-  // 获取全部热榜
-  allItems.forEach((item: { id: string }) => {
-    // 基础数据
-    const hotItem = jsonObject[item.id];
-    if (!hotItem) return;
-    const id = hotItem.photoIds?.json?.[0];
-    const hotValue = hotItem.hotValue ?? "";
-    const poster = hotItem.poster ? decodeURIComponent(hotItem.poster) : undefined;
-    listData.push({
-      id: hotItem.id,
-      title: hotItem.name,
-      cover: poster,
-      hot: parseChineseNumber(String(hotValue)),
+
+  const items = result.data?.data?.visionHotRank?.items || [];
+  const listData: ListItem[] = items.map((v) => {
+    const photoId = v.photoIds?.[0];
+    return {
+      id: photoId || v.id,
+      title: v.name,
+      cover: v.poster || undefined,
+      hot: parseChineseNumber(String(v.hotValue ?? "")),
       timestamp: undefined,
-      url: `https://www.kuaishou.com/short-video/${id}`,
-      mobileUrl: `https://www.kuaishou.com/short-video/${id}`,
-    });
+      url: photoId
+        ? `https://www.kuaishou.com/short-video/${photoId}`
+        : "https://www.kuaishou.com/",
+      mobileUrl: photoId
+        ? `https://www.kuaishou.com/short-video/${photoId}`
+        : "https://www.kuaishou.com/",
+    };
   });
-  return {
-    ...result,
-    data: listData,
-  };
+
+  return { ...result, data: listData };
 };
