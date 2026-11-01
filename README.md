@@ -10,6 +10,8 @@
 <img src="https://github.com/imsyy/DailyHotApi/actions/workflows/npm.yml/badge.svg" alt="Publish npm package"/>
 </div>
 
+> 本仓库为自建 fork，中文说明（自建改动与部署）见 [README.zh-CN.md](./README.zh-CN.md)；线上接口 <https://hot.htmax.cn>。
+
 ## 🚩 特性
 
 - 极快响应，便于开发
